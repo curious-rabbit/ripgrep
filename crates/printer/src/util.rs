@@ -588,6 +588,53 @@ where
     Ok(())
 }
 
+// rewrite dangerous control bytes to \xNN
+// preserves tab LF and CRLF but escapes bare or midline CR
+#[allow(missing_docs)]
+pub fn sanitize_control<'b>(
+    bytes: &'b [u8],
+) -> std::borrow::Cow<'b, [u8]> {
+    fn is_danger(b: u8) -> bool {
+        (b < 0x20 && b != b'\t' && b != b'\n' && b != b'\r') || b == 0x7F
+    }
+    // quick scan: anything to do
+    let mut need = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if is_danger(b) { need = true; break; }
+        if b == b'\r' {
+            if i + 1 >= bytes.len() || bytes[i + 1] != b'\n' {
+                need = true; break;
+            }
+            i += 2; continue;
+        }
+        i += 1;
+    }
+    if !need {
+        return std::borrow::Cow::Borrowed(bytes);
+    }
+    let mut out = Vec::with_capacity(bytes.len() + 8);
+    const HEX: &[u8] = b"0123456789ABCDEF";
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        let escape = is_danger(b)
+            || (b == b'\r'
+                && (i + 1 >= bytes.len() || bytes[i + 1] != b'\n'));
+        if escape {
+            out.push(b'\\');
+            out.push(b'x');
+            out.push(HEX[(b >> 4) as usize]);
+            out.push(HEX[(b & 0xF) as usize]);
+        } else {
+            out.push(b);
+        }
+        i += 1;
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,5 +651,41 @@ mod tests {
         for n in ints {
             assert_eq!(std(n), fmt(n));
         }
+    }
+
+    #[test]
+    fn sanitize_passthrough() {
+        let input: &[u8] = b"hello\tworld\nline\r\ndone\r\n";
+        let out = sanitize_control(input);
+        assert_eq!(&*out, input);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn sanitize_escapes_esc_bel_del() {
+        let input: &[u8] = b"a\x1bb\x07c\x7fd";
+        let out = sanitize_control(input);
+        assert_eq!(&*out, &b"a\\x1Bb\\x07c\\x7Fd"[..]);
+    }
+
+    #[test]
+    fn sanitize_escapes_midline_cr() {
+        let input: &[u8] = b"SAFE=0\rEVIL=1\n";
+        let out = sanitize_control(input);
+        assert_eq!(&*out, &b"SAFE=0\\x0DEVIL=1\n"[..]);
+    }
+
+    #[test]
+    fn sanitize_escapes_trailing_cr() {
+        let input: &[u8] = b"hello\r";
+        let out = sanitize_control(input);
+        assert_eq!(&*out, &b"hello\\x0D"[..]);
+    }
+
+    #[test]
+    fn sanitize_preserves_utf8() {
+        let input: &[u8] = "héllo\x1bworld".as_bytes();
+        let out = sanitize_control(input);
+        assert_eq!(&*out, &b"h\xC3\xA9llo\\x1Bworld"[..]);
     }
 }

@@ -155,7 +155,8 @@ impl<W: WriteColor> PathPrinter<W> {
         } else {
             let status = self.start_hyperlink(&ppath)?;
             self.wtr.set_color(self.config.colors.path())?;
-            self.wtr.write_all(ppath.as_bytes())?;
+            self.wtr
+                .write_all(&crate::util::sanitize_control(ppath.as_bytes()))?;
             self.wtr.reset()?;
             self.interpolator.finish(status, &mut self.wtr)?;
         }

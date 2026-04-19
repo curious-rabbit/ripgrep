@@ -579,10 +579,13 @@ impl<'p, 's, M: Matcher, W: WriteColor> SummarySink<'p, 's, M, W> {
     fn write_path(&mut self) -> io::Result<()> {
         if self.path.is_some() {
             let status = self.start_hyperlink()?;
-            self.write_spec(
-                self.summary.config.colors.path(),
-                self.path.as_ref().unwrap().as_bytes(),
-            )?;
+            let path_bytes = self.path.as_ref().unwrap().as_bytes();
+            let spec = self.summary.config.colors.path();
+            if self.summary.wtr.borrow().supports_color() {
+                self.write_spec(spec, &crate::util::sanitize_control(path_bytes))?;
+            } else {
+                self.write_spec(spec, path_bytes)?;
+            }
             self.end_hyperlink(status)?;
         }
         Ok(())

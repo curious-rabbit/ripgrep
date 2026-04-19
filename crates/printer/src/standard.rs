@@ -1433,7 +1433,11 @@ impl<'a, M: Matcher, W: WriteColor> StandardImpl<'a, M, W> {
     fn write_spec(&self, spec: &ColorSpec, buf: &[u8]) -> io::Result<()> {
         let mut wtr = self.wtr().borrow_mut();
         wtr.set_color(spec)?;
-        wtr.write_all(buf)?;
+        if wtr.supports_color() {
+            wtr.write_all(&crate::util::sanitize_control(buf))?;
+        } else {
+            wtr.write_all(buf)?;
+        }
         wtr.reset()?;
         Ok(())
     }
@@ -1441,7 +1445,11 @@ impl<'a, M: Matcher, W: WriteColor> StandardImpl<'a, M, W> {
     fn write_path(&self, path: &PrinterPath) -> io::Result<()> {
         let mut wtr = self.wtr().borrow_mut();
         wtr.set_color(self.config().colors.path())?;
-        wtr.write_all(path.as_bytes())?;
+        if wtr.supports_color() {
+            wtr.write_all(&crate::util::sanitize_control(path.as_bytes()))?;
+        } else {
+            wtr.write_all(path.as_bytes())?;
+        }
         wtr.reset()
     }
 
@@ -1517,7 +1525,12 @@ impl<'a, M: Matcher, W: WriteColor> StandardImpl<'a, M, W> {
     }
 
     fn write(&self, buf: &[u8]) -> io::Result<()> {
-        self.wtr().borrow_mut().write_all(buf)
+        let mut wtr = self.wtr().borrow_mut();
+        if wtr.supports_color() {
+            wtr.write_all(&crate::util::sanitize_control(buf))
+        } else {
+            wtr.write_all(buf)
+        }
     }
 
     fn trim_line_terminator(&self, buf: &[u8], line: &mut Match) {
